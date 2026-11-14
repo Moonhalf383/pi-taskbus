@@ -3,16 +3,46 @@
   "version": "0.1.0",
   "description": "Checkpoint-driven task trees and enforced tool attribution for Pi",
   "type": "module",
-  "keywords": ["pi-package", "pi", "tasks"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "tasks"
+  ],
   "license": "MIT",
-  "files": ["src", "README.md", "taskbus.example.json"],
-  "pi": { "extensions": ["./src/index.ts"] },
+  "author": "Moonhalf383",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Moonhalf383/pi-taskbus.git"
+  },
+  "homepage": "https://github.com/Moonhalf383/pi-taskbus#readme",
+  "bugs": {
+    "url": "https://github.com/Moonhalf383/pi-taskbus/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "CHANGELOG.md",
+    "taskbus.example.json"
+  ],
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
   "scripts": {
     "check": "tsc --noEmit",
     "test": "tsx --test test/*.test.ts",
-    "validate": "npm run check && npm test"
+    "validate": "npm run check && npm test",
+    "test:package": "node scripts/check-package.mjs",
+    "prepublishOnly": "npm run validate && npm run test:package"
   },
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22.19.0"
+  },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",

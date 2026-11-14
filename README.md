@@ -4,15 +4,25 @@ pi-taskbus is a Pi extension that organizes work into task trees and checkpoints
 
 ## Getting started
 
-The package requires Node.js 22 or later and is currently tested with Pi 1.5.2. From the project directory, install the dependencies, run the checks, and launch Pi with the extension enabled:
+The package requires Node.js 22.19.0 or later and is currently tested with Pi 1.5.2. Install the npm package through Pi, then start a new Pi session or use /reload in an existing session:
 
 ```sh
-npm install
+pi install npm:pi-taskbus
+```
+
+For a version-pinned installation, use `pi install npm:pi-taskbus@0.1.0`. To try the package for one invocation, run `pi -e npm:pi-taskbus`. Installation enables checkpoint-based tool attribution, so the model plans tasks with task_manage and routes subsequent work through task_run. Release notes are maintained in CHANGELOG.md, with tagged releases available on GitHub as they are published.
+
+For local development, clone the repository, install dependencies, and launch Pi with the source entry point:
+
+```sh
+git clone https://github.com/Moonhalf383/pi-taskbus.git
+cd pi-taskbus
+npm ci
 npm run validate
 pi -e ./src/index.ts
 ```
 
-The launch argument enables the extension for that Pi invocation. For continued use, run `pi install /absolute/path/to/pi-taskbus`. Package loading is manually configured by the user. After changing the extension source, use /reload in Pi to load the updated code; task state is restored from the session journal.
+The launch argument enables the local extension for that invocation. To keep using a checkout, run `pi install /absolute/path/to/pi-taskbus`. After changing the extension source, use /reload in Pi to load the updated code; task state is restored from the session journal.
 
 ## Tasks, progress, and confidence
 
@@ -69,7 +79,7 @@ The resident tree sits inline above the editor and displays tasks, checkpoints, 
 
 The /taskbus command opens the full tree window, which supports narrow terminals, resizing, and Kitty-encoded keyboard input. In this window, j and k or the up and down arrows move through rows, h and l or the left and right arrows fold and unfold nodes or move between parents and children, and Esc or q closes the window. The slash key starts a search that retains ancestor paths for matching nodes, Enter or Esc finishes search input, and c clears the query. Outside search input, Enter toggles node details and recent history, o expands all nodes, z folds all nodes, and g or G moves to the first or last row. Folding changes are shared with the resident tree, and selection and folding state remain in memory until the extension is reloaded.
 
-Task and checkpoint rows use separate visual cues for status, confidence, and selection: pending indicators and labels use the warning color, completed items use the success color, IDs and informational hints use muted tones, and borders use a subdued tone, and the selected row combines a magenta marker and ID with a neutral title, bold text, and the theme's selection background. The summary line and active-work marker use cyan, with cyan and magenta lightness adapted to the theme appearance. Confidence values retain their own green, yellow, or red coloring so that a completed checkpoint can still show its frozen low-confidence score. Custom thresholds can choose warning or error colors. The /taskbus json command exposes the current state and /taskbus history shows recent events. Structural changes are made through task_manage.
+Task and checkpoint rows use separate visual cues for status, confidence, and selection: pending indicators and labels use the warning color, completed items use the success color, IDs and informational hints use muted tones, borders use a subdued tone, and the selected row combines a magenta marker and ID with a neutral title, bold text, and the theme's selection background. The summary line and active-work marker use cyan, with cyan and magenta lightness adapted to the theme appearance. Confidence values retain their own green, yellow, or red coloring so that a completed checkpoint can still show its frozen low-confidence score. Custom thresholds can choose warning or error colors. The /taskbus json command exposes the current state and /taskbus history shows recent events. Structural changes are made through task_manage.
 
 All built-in interface text is English, including statuses, detail labels, shortcut hints, notifications, tool summaries, and default reminders. User-authored titles, completion summaries, reopening reasons, and custom reminder text retain their original language. Existing sessions keep the reminder configuration saved at initialization, so the English default reminders apply to newly initialized sessions.
 
@@ -97,4 +107,4 @@ The recovery journal stores accounting information, tool names, and call IDs. Pi
 
 Attribution covers work tools that pass through the tool-event chain in the current Pi process, including built-in tools, ordinary extension tools, and registered dynamic or MCP tools that support nested execution. Tools exposed only to the model require a dedicated adapter, and the gateway reports that limitation when they are requested. Independent subagent processes contribute the delegation call; accounting for their internal tool executions requires additional integration. Manual host commands such as ! and extensions that access Node.js APIs directly are outside the tool-event chain. If another task-panel extension is enabled, its model instructions and management tools should be coordinated with taskbus; trying this package on its own makes that behavior easier to assess.
 
-Run `npm run validate` to perform TypeScript checks and the test suite, and `npm pack --dry-run` to inspect the package contents. Tests cover task constraints, confidence and reminders, splitting, branch replay, configuration, concurrent attribution, recovery failures, keyboard navigation, multilingual user content, colors, and narrow-terminal rendering. SDK tests use the real Pi 1.5.2 dispatcher with synthetic offline model responses to exercise built-in reads, parallel orchestration, nested calls, deferred tool registration, permission blocks, and error accounting. Renderer tests cover native diffs, source previews, streaming output, collapsed results, and English interface labels, and regular and fullscreen TUI tests use an in-memory terminal to check tool-card, resident-tree, and editor ordering as well as overlay resizing. Live MCP services and real model behavior still need to be exercised in the intended deployment environment.
+Run `npm run validate` to perform TypeScript checks and the test suite, `npm pack --dry-run` to inspect the package contents, and `npm run test:package` to install a generated tarball into an isolated temporary project and load its extension through Pi. The package check verifies the manifest, changelog, and published file list, installs with host peers omitted, and uses the development host to verify that the installed extension registers both task tools and the taskbus command. GitHub Actions runs these checks on Node.js 22.19.0 and 24. Tests cover task constraints, confidence and reminders, splitting, branch replay, configuration, concurrent attribution, recovery failures, keyboard navigation, multilingual user content, colors, and narrow-terminal rendering. SDK tests use the real Pi 1.5.2 dispatcher with synthetic offline model responses to exercise built-in reads, parallel orchestration, nested calls, deferred tool registration, permission blocks, and error accounting. Renderer tests cover native diffs, source previews, streaming output, collapsed results, and English interface labels, and regular and fullscreen TUI tests use an in-memory terminal to check tool-card, resident-tree, and editor ordering as well as overlay resizing. Live MCP services and real model behavior still need to be exercised in the intended deployment environment. Maintainers can follow RELEASING.md in the repository for the npm publishing and Git tagging procedure.
