@@ -7,7 +7,7 @@ import { TaskStore } from "../src/model.ts";
 import { TaskPanelComponent, TaskTreeComponent, newViewState, overlayHeight, rowLine, safeText, treeRows } from "../src/view.ts";
 
 const palette: Record<string, number> = { error: 31, warning: 33, success: 32, accent: 36, muted: 90, dim: 90, text: 37 };
-const theme = { fg: (color: string, text: string) => `\x1b[${palette[color] ?? 37}m${text}\x1b[39m`, bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`, bold: (text: string) => `\x1b[1m${text}\x1b[22m` } as unknown as Theme;
+const theme = { appearance: "dark", style: (text: string, options: { fg?: { r?: number; g?: number; b?: number } }) => `\x1b[38;2;${options.fg?.r};${options.fg?.g};${options.fg?.b}m${text}\x1b[39m`, fg: (color: string, text: string) => `\x1b[${palette[color] ?? 37}m${text}\x1b[39m`, bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`, bold: (text: string) => `\x1b[1m${text}\x1b[22m` } as unknown as Theme;
 function setup() {
   const store = new TaskStore(DEFAULT_CONFIG, () => {});
   store.commit({ type: "task_created", title: "项目中文树 🌲", checkpoints: ["接口验收", "测试覆盖"] });
@@ -139,12 +139,35 @@ test("tree separates status, confidence, selection and informational colors", ()
   view.selectedId = "CP-1";
   const selected = rowLine(store.state, checkpoint, view, theme, 100);
   assert.match(selected, /\x1b\[44m/);
-  assert.match(selected, /\x1b\[36m接口验收/);
+  assert.match(selected, /\x1b\[37m接口验收/);
   assert.match(selected, /\x1b\[32mdone/);
   assert.equal(stripTerminalSequences(selected), stripTerminalSequences(done).replace(/^ /, ">"));
   const panel = new TaskPanelComponent({ state: () => store.state, activeTasks: () => [], failure: () => undefined }, view, theme, () => 30);
   assert.match(panel.render(140).join("\n"), /\x1b\[90m.*Alt\+j\/k/);
   for (const width of [1, 8, 20, 40, 100]) assert.equal(visibleWidth(rowLine(store.state, checkpoint, view, theme, width)), width);
+});
+
+test("summary and focus have distinct colors in dark and light appearances", () => {
+  const { store, view } = setup();
+  view.selectedId = "CP-1";
+  const checkpoint = treeRows(store.state, view).find((row) => row.id === "CP-1")!;
+  for (const appearance of ["dark", "light"] as const) {
+    const themed = { ...theme, appearance } as unknown as Theme;
+    const cyan = appearance === "dark" ? "103;232;249" : "0;105;120";
+    const magenta = appearance === "dark" ? "240;171;252" : "150;40;160";
+    const panel = new TaskPanelComponent({ state: () => store.state, activeTasks: () => [], failure: () => undefined }, view, themed, () => 30);
+    const full = new TaskTreeComponent({ state: () => store.state, history: () => [] }, view, themed, () => {}, () => 20, () => {});
+    for (const component of [panel, full]) {
+      const summary = component.render(140).find((line) => stripTerminalSequences(line).includes("Confidence"))!;
+      assert.ok(summary.includes(`\x1b[38;2;${cyan}m0% 0/2 · Confidence 100% · Low 0`));
+    }
+    const selected = rowLine(store.state, checkpoint, view, themed, 100);
+    assert.ok(selected.includes(`\x1b[38;2;${magenta}m>`));
+    assert.ok(selected.includes(`\x1b[38;2;${magenta}mCP-1`));
+    assert.match(selected, /\x1b\[44m/);
+    assert.match(selected, /\x1b\[33mpending/);
+    assert.match(selected, /\x1b\[32mC:100%/);
+  }
 });
 
 test("task and checkpoint rows follow confidence colors", () => {

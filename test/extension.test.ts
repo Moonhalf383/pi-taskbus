@@ -22,7 +22,7 @@ function harness() {
   const widgets = new Map<string, any>();
   const widgetCalls: { key: string; placement?: string }[] = [];
   let requestedRenders = 0;
-  const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as Theme;
+  const theme = { style: (text: string) => text, fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
   const pi = {
     on: (name: string, handler: (...args: any[]) => any) => { handlers.set(name, handler); },
     registerTool: (definition: any) => tools.set(definition.name, definition),

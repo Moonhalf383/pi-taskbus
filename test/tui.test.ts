@@ -27,7 +27,7 @@ class MemoryTerminal implements Terminal {
   setProgress() {}
   setProgramStatus() {}
 }
-const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as Theme;
+const theme = { style: (text: string) => text, fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 
 for (const mode of ["regular", "fullscreen"]) {
   test(`${mode} host keeps recent tool card above inline panel and renders bordered overlay on resize`, async () => {

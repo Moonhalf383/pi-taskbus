@@ -76,16 +76,29 @@ export function framedLines(content: string[], title: string, theme: Theme, widt
   if (!width || !height) return [];
   if (width < 4 || height < 3) return content.slice(0, height).map((line) => fitLine(line, width));
   const edgeWidth = width - 2;
-  const top = theme.fg("border", `╭${fitLine(`─ ${title} `, edgeWidth, "─")}╮`);
-  const bottom = theme.fg("border", `╰${"─".repeat(edgeWidth)}╯`);
+  const top = theme.fg("borderMuted", `╭${fitLine(`─ ${title} `, edgeWidth, "─")}╮`);
+  const bottom = theme.fg("borderMuted", `╰${"─".repeat(edgeWidth)}╯`);
   const body = content.slice(0, height - 2).map((line) =>
-    theme.fg("border", "│") + " " + fitLine(line, width - 4) + " " + theme.fg("border", "│"));
-  while (body.length < height - 2) body.push(theme.fg("border", "│") + " ".repeat(edgeWidth) + theme.fg("border", "│"));
+    theme.fg("borderMuted", "│") + " " + fitLine(line, width - 4) + " " + theme.fg("borderMuted", "│"));
+  while (body.length < height - 2) body.push(theme.fg("borderMuted", "│") + " ".repeat(edgeWidth) + theme.fg("borderMuted", "│"));
   return [top, ...body, bottom];
 }
 
 export function overlayHeight(terminalRows: number): number {
   return Math.max(1, Math.min(Math.floor(terminalRows * 0.95), terminalRows - 2));
+}
+
+/** Reserve cyan for information and magenta for focus, independent of border/accent tokens. */
+function roleColor(theme: Theme, role: "summary" | "focus", text: string): string {
+  const light = theme.appearance === "light";
+  const [r, g, b] = role === "summary"
+    ? light ? [0, 105, 120] : [103, 232, 249]
+    : light ? [150, 40, 160] : [240, 171, 252];
+  return theme.style(text, { fg: { kind: "rgb", r, g, b } });
+}
+
+function summaryLine(stat: ReturnType<typeof metrics>, theme: Theme): string {
+  return roleColor(theme, "summary", `${percent(stat.progress)} ${stat.completed}/${stat.total} · Confidence ${percent(stat.confidence)} · Low ${stat.lowCount}${stat.unplanned ? ` · Unplanned ${stat.unplanned}` : ""}`);
 }
 
 export function rowLine(state: State, row: TreeRow, view: ViewState, theme: Theme, width: number): string {
@@ -97,10 +110,10 @@ export function rowLine(state: State, row: TreeRow, view: ViewState, theme: Them
   const done = checkpoint ? checkpoint.status === "done" : stat!.total > 0 && stat!.completed === stat!.total;
   const statusColor = done ? "success" : "warning";
   const status = checkpoint ? (done ? "✓" : "○") : row.expandable ? (view.query || !view.collapsed.has(row.id) ? "▾" : "▸") : "·";
-  const marker = theme.fg(selected ? "accent" : "dim", selected ? ">" : " ");
+  const marker = selected ? roleColor(theme, "focus", ">") : theme.fg("dim", " ");
   const indent = "  ".repeat(Math.min(row.depth, Math.max(0, Math.floor(width / 6))));
-  const titleColor = selected ? "accent" : done ? "success" : checkpoint ? "text" : "accent";
-  const title = `${marker} ${indent}${theme.fg(statusColor, status)} ${theme.fg("muted", row.id)} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`;
+  const titleColor = "text";
+  const title = `${marker} ${indent}${theme.fg(statusColor, status)} ${(selected ? roleColor(theme, "focus", row.id) : theme.fg("muted", row.id))} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`;
   const scoreText = theme.fg(confidenceColor(score, state.config), `C:${percent(score)}`);
   const statusText = checkpoint
     ? theme.fg(statusColor, done ? "done" : "pending")
@@ -110,7 +123,7 @@ export function rowLine(state: State, row: TreeRow, view: ViewState, theme: Them
   const suffixWidth = visibleWidth(suffix);
   const content = width >= suffixWidth + 12
     ? fitLine(title, Math.max(1, width - suffixWidth)) + suffix
-    : fitLine(`${marker}${theme.fg("muted", row.id)} ${task ? theme.fg(statusColor, `${percent(stat!.progress)} `) : theme.fg(statusColor, `${status} `)}${scoreText} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`, width);
+    : fitLine(`${marker}${(selected ? roleColor(theme, "focus", row.id) : theme.fg("muted", row.id))} ${task ? theme.fg(statusColor, `${percent(stat!.progress)} `) : theme.fg(statusColor, `${status} `)}${scoreText} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`, width);
   return selected ? theme.bg("selectedBg", theme.bold(content)) : content;
 }
 
@@ -144,8 +157,7 @@ export class TaskPanelComponent implements Component {
     const capacity = Math.max(1, height - 4);
     let start = Math.max(0, focus - Math.floor(capacity / 2));
     start = Math.min(start, Math.max(0, rows.length - capacity));
-    const lines = [this.theme.fg(confidenceColor(stat.confidence, state.config),
-      `${percent(stat.progress)} ${stat.completed}/${stat.total} · Confidence ${percent(stat.confidence)} · Low ${stat.lowCount}${stat.unplanned ? ` · Unplanned ${stat.unplanned}` : ""}`)];
+    const lines = [summaryLine(stat, this.theme)];
     if (height <= 4) {
       const row = rows[focus];
       return framedLines([row ? rowLine(state, row, panelView, this.theme, innerWidth) : lines[0], this.theme.fg("muted", "/taskbus open full tree")], "Taskbus · Task tree", this.theme, width, height);
@@ -153,7 +165,7 @@ export class TaskPanelComponent implements Component {
     if (!rows.length) lines.push(this.theme.fg("muted", "No tasks yet. Use task_manage to create tasks and checkpoints."));
     else for (const row of rows.slice(start, start + capacity)) {
       const rendered = rowLine(state, row, panelView, this.theme, Math.max(0, innerWidth - 2));
-      lines.push(`${active.includes(row.id) ? this.theme.fg("accent", "● ") : "  "}${rendered}`);
+      lines.push(`${active.includes(row.id) ? roleColor(this.theme, "summary", "● ") : "  "}${rendered}`);
     }
     const hidden = Math.max(0, rows.length - capacity);
     while (lines.length < height - 3) lines.push("");
@@ -245,7 +257,7 @@ export class TaskTreeComponent implements Component, Focusable {
     if (currentIndex < this.offset) this.offset = currentIndex;
     if (currentIndex >= this.offset + capacity) this.offset = currentIndex - capacity + 1;
     this.offset = Math.max(0, Math.min(this.offset, Math.max(0, rows.length - capacity)));
-    const summary = this.theme.fg("accent", `${percent(total.progress)} ${total.completed}/${total.total} · Confidence ${percent(total.confidence)} · Low ${total.lowCount}`);
+    const summary = summaryLine(total, this.theme);
     if (height < 5) return framedLines([rows[currentIndex] ? rowLine(state, rows[currentIndex], this.view, this.theme, innerWidth) : summary], "Taskbus", this.theme, width, height);
     const lines = [summary];
     this.input.focused = this.focused && this.searching;
