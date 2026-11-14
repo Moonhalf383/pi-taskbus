@@ -1,0 +1,19 @@
+{
+  "decay": 0.95,
+  "checkpointLimit": 8,
+  "reminderEvery": 5,
+  "thresholds": [
+    {
+      "id": "review",
+      "below": 0.6,
+      "color": "warning",
+      "prompt": "{checkpointId} ({title}) has granularity confidence {confidence} after {effort} work calls. Check for hidden work and consider splitting this checkpoint."
+    },
+    {
+      "id": "split",
+      "below": 0.3,
+      "color": "error",
+      "prompt": "Strongly consider splitting {checkpointId} ({title}): granularity confidence is {confidence} after {effort} work calls. Identify hidden work and refine tracking with task_manage checkpoint_split."
+    }
+  ]
+}
