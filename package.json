@@ -26,6 +26,7 @@
     "src",
     "README.md",
     "CHANGELOG.md",
+    "assets/taskbus.svg",
     "taskbus.example.json"
   ],
   "pi": {

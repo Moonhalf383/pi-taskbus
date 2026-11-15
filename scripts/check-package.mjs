@@ -20,10 +20,10 @@ function run(args, cwd) {
 try {
   const [packed] = JSON.parse(run(["pack", "--json", "--pack-destination", temp], root));
   const files = packed.files.map((file) => file.path);
-  for (const path of ["package.json", "README.md", "LICENSE", "CHANGELOG.md", "taskbus.example.json", "src/index.ts"]) {
+  for (const path of ["package.json", "README.md", "LICENSE", "CHANGELOG.md", "taskbus.example.json", "assets/taskbus.svg", "src/index.ts"]) {
     assert.ok(files.includes(path), `Missing published file: ${path}`);
   }
-  assert.ok(files.every((path) => path.startsWith("src/") || ["package.json", "README.md", "LICENSE", "CHANGELOG.md", "taskbus.example.json"].includes(path)), "Unexpected file in tarball");
+  assert.ok(files.every((path) => path.startsWith("src/") || ["package.json", "README.md", "LICENSE", "CHANGELOG.md", "taskbus.example.json", "assets/taskbus.svg"].includes(path)), "Unexpected file in tarball");
 
   writeFileSync(join(temp, "package.json"), JSON.stringify({ name: "taskbus-package-smoke", private: true }));
   run(["install", "--ignore-scripts", "--legacy-peer-deps", "--package-lock=false", join(temp, packed.filename)], temp);
