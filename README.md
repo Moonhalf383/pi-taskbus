@@ -2,7 +2,7 @@
 
 pi-taskbus gives Pi a task tree that stays connected to actual tool use. Every work call belongs to a checkpoint, progress follows completed checkpoints, and confidence decay helps the agent notice when a checkpoint hides more work than its plan describes.
 
-![Taskbus connects agent tool calls to tasks and checkpoints, with checkpoint and task splitting to refine the plan.](https://raw.githubusercontent.com/Moonhalf383/pi-taskbus/main/assets/taskbus.svg)
+![Taskbus connects agent tool calls to tasks and checkpoints, with checkpoint and task splitting to refine the plan.](https://raw.githubusercontent.com/Moonhalf383/pi-taskbus/main/assets/taskbus.png)
 
 ## Install
 
