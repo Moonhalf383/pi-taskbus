@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.1.1]
+
+Release packaging update with a version bump to 0.1.1; no runtime changes.
+
 ## [0.1.0]
 
 Both trees expose strict/soft and inherited prerequisite markers plus blocked status. Dependency details show cross-page targets and blocker reasons on wrapped, scrollable lines.
