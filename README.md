@@ -39,8 +39,10 @@ The agent must review a dirty node with `refresh`, supplying a summary and optio
 The agent manages the plan as it works, and you can inspect it at any time:
 
 - The resident tree above the editor shows progress, confidence, and active work. Use `Alt+j/k` to move and `Alt+h/l` to fold, unfold, or move between parents and children. Switch pages with `Alt+Shift+h/l`.
-- Open `/taskbus` for the full tree. Use `j/k` or arrows to move, `h/l` to fold or unfold, `/` to search, `Enter` for details, and `Esc` to close. `o/z` expands or folds all nodes; `g/G` selects the first or last row; `c` clears search. `Shift+h/l` cycles pages, preserving each page's selection, folding, and search.
+- Open `/taskbus` for the full tree. Use `j/k` or arrows to move, `h/l` to fold or unfold, `/` to search, `Enter` for details, and `Esc` to close. `o/z` expands or folds all nodes; `g/G` selects the first or last row; `c` clears search. `Shift+h/l` cycles pages, preserving each page's selection, folding, and search. Dependency details wrap to the available width; use `PgUp/PgDn` to scroll long details.
 - Use `/taskbus json` for the current state and `/taskbus history` for recent events. After fixing a persistence error, use `/taskbus recover` to replay pending accounting on its original session branch.
+
+Both trees show prerequisite markers (`←S:CP-1` for strict, `←s:T-1` for soft, and `^` for inherited constraints) and `blocked` when pending work cannot run. Narrow rows show a prerequisite count instead. Node details list own and inherited prerequisites separately, with target page IDs, states, and concrete blocker reasons.
 
 The resident panel is bounded to leave space for recent tool output. Pending/done, ignored (`⊘`), dirty (`!dirty`), selection, and confidence have separate visual cues, with cyan summaries and theme-aware focus colors. Built-in `edit`, `write`, and `bash` tools keep native diffs, previews, and streaming renderers; other extension tools use collapsible text output. Interface labels are English, and user-authored task content keeps its original language.
 

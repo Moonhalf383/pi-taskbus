@@ -2,7 +2,7 @@
 
 ## Requirement-to-evidence audit
 
-Local verification uses Pi 1.5.2 on Node.js 24.14.1. `npm run validate` passes TypeScript checking and all 80 tests. `npm run test:package` builds and installs a real local tarball and loads the installed extension through Pi (14 published files). `git diff --check` passes. CI retains the Node.js 22.19.0 / 24 matrix; remote CI is not claimed as locally executed evidence.
+Local verification uses Pi 1.5.2 on Node.js 24.14.1. `npm run validate` passes TypeScript checking and all 87 tests. `npm run test:package` builds and installs a real local tarball and loads the installed extension through Pi (14 published files). `git diff --check` passes. CI retains the Node.js 22.19.0 / 24 matrix; remote CI is not claimed as locally executed evidence.
 
 | Requirement | Implementation | Regression evidence |
 | --- | --- | --- |
@@ -37,3 +37,7 @@ The archived-prerequisite-copy concern was checked against assignment validation
 ## Verification boundaries
 
 Tests use synthetic offline model responses and in-memory terminals; they do not claim live-provider, live-MCP, or physical-terminal visual verification. Page browsing state is preserved while switching pages in the current view, not persisted as task journal data. The package version remains 0.1.0; no npm publication or global Pi configuration change is part of this delivery.
+
+## Dependency visibility follow-up
+
+`test/view-dependencies.test.ts` adds seven regressions for own/inherited strict/soft markers, ready versus blocked work, cross-page details, dirty/archived targets, narrow rows, Unicode wrapping, and detail scrolling. At height 8 with a search filter, the last blocker remains reachable while the selected tree row remains visible. The follow-up independent read-only review used inline implementation behavior because the subprocess could not inspect the checkout; it found no substantive issue and requested that short-overlay boundary check, which passes.

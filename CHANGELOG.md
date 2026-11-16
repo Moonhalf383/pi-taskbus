@@ -2,6 +2,8 @@
 
 ## [0.1.0]
 
+Both trees expose strict/soft and inherited prerequisite markers plus blocked status. Dependency details show cross-page targets and blocker reasons on wrapped, scrollable lines.
+
 Initial release includes a paged task forest with cross-page strict/soft prerequisites, reversible ignore, derived certainty/completion, transitive dirty tracking, explicit refresh, and available-work queries with blockers. Legacy session trees migrate into the default page with IDs preserved.
 
 Initial release of pi-taskbus, tested with Pi 1.5.2 and requiring Node.js 22.19.0 or later.
