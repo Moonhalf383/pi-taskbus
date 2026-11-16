@@ -1,6 +1,6 @@
 {
   "name": "pi-taskbus",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Checkpoint-driven task trees and enforced tool attribution for Pi",
   "type": "module",
   "keywords": [
