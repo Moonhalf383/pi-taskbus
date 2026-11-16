@@ -75,7 +75,7 @@ test("resident task tree installs once above editor and refreshes from live stat
     const panel = h.widgets.get("taskbus");
     assert.equal(h.widgetCalls[0].placement, "aboveEditor");
     assert.match(panel.render(90).join("\n"), /No tasks yet/);
-    await h.tools.get("task_manage").execute("create", { action: "task_create", title: "可见任务", checkpoints: ["可见验收"] }, undefined, undefined, h.ctx);
+    await h.tools.get("task_manage").execute("create", { action: "task_create", pageId: "P-1", title: "可见任务", checkpoints: ["可见验收"] }, undefined, undefined, h.ctx);
     assert.equal(h.widgets.get("taskbus"), panel);
     assert.equal(h.widgetCalls.length, 1);
     assert.match(panel.render(90).join("\n"), /可见验收/);
@@ -89,7 +89,7 @@ test("resident shortcuts move selection and fold without opening a dialog", asyn
   const h = harness();
   try {
     h.handlers.get("session_start")!({}, h.ctx);
-    await h.tools.get("task_manage").execute("create", { action: "task_create", title: "快捷键任务", checkpoints: Array.from({ length: 20 }, (_, i) => `验收 ${i}`) }, undefined, undefined, h.ctx);
+    await h.tools.get("task_manage").execute("create", { action: "task_create", pageId: "P-1", title: "快捷键任务", checkpoints: Array.from({ length: 20 }, (_, i) => `验收 ${i}`) }, undefined, undefined, h.ctx);
     const panel = h.widgets.get("taskbus");
     await h.shortcuts.get("alt+j").handler(h.ctx);
     assert.match(panel.render(90).join("\n"), />.*CP-1/);
@@ -126,7 +126,7 @@ test("failed accounting remains inspectable and recovers before work resumes", a
   const h = harness();
   try {
     h.handlers.get("session_start")!({}, h.ctx);
-    await h.tools.get("task_manage").execute("manage", { action: "task_create", title: "任务", checkpoints: ["验收"] }, undefined, undefined, h.ctx);
+    await h.tools.get("task_manage").execute("manage", { action: "task_create", pageId: "P-1", title: "任务", checkpoints: ["验收"] }, undefined, undefined, h.ctx);
     h.fail(true);
     const outcome = await h.tools.get("task_run").execute("root", { taskId: "T-1", checkpointId: "CP-1", tool: "read", args: {} }, undefined, undefined, h.ctx);
     assert.equal(outcome.isError, true);
@@ -137,5 +137,53 @@ test("failed accounting remains inspectable and recovers before work resumes", a
     const store = TaskStore.restore(h.all.map((entry) => entry.data), DEFAULT_CONFIG, () => {});
     assert.equal(store.state.checkpoints["CP-1"].effort, 1);
     assert.equal(h.handlers.get("tool_call")!({ toolName: "task_manage", toolCallId: "inspect" }, h.ctx), undefined);
+  } finally { rmSync(h.dir, { recursive: true }); }
+});
+
+test("management exposes pages, dependencies, ignore, refresh and actionable available blockers", async () => {
+  const h = harness();
+  try {
+    h.handlers.get("session_start")!({}, h.ctx);
+    const manage = (input: unknown) => h.tools.get("task_manage").execute("manage", input, undefined, undefined, h.ctx);
+    const data = async (input: unknown) => (await manage(input)).details;
+    await assert.rejects(() => manage({ action: "task_create", title: "Missing page", checkpoints: [] }), /pageId/);
+    await manage({ action: "task_create", pageId: "P-1", title: "Source", checkpoints: ["source"] });
+    const pages = await data({ action: "pages" }); assert.equal(pages[0].id, "P-1");
+    await manage({ action: "page_create", title: "Second" });
+    await manage({ action: "task_create", pageId: "P-2", title: "Consumer", dependencies: [{ id: "CP-1", kind: "strict" }], checkpoints: [{ title: "consume", dependencies: [] }] });
+    let work = await data({ action: "available", pageId: "P-2", includeBlocked: true });
+    assert.equal(work[0].available, false); assert.match(work[0].blockers.join(" "), /strict CP-1/);
+    await assert.rejects(() => manage({ action: "ignore", id: "CP-1", ignored: true, reason: "Try" }), /Strict/);
+    await manage({ action: "complete", checkpointId: "CP-1", summary: "Verified" });
+    work = await data({ action: "available", pageId: "P-2" }); assert.equal(work.length, 1);
+    await manage({ action: "reopen", checkpointId: "CP-1", reason: "Review" });
+    work = await data({ action: "available", pageId: "P-2", includeBlocked: true }); assert.match(work[0].blockers.join(" "), /dirty/);
+    await manage({ action: "refresh", id: "T-2", dependencies: [], summary: "Independent now" });
+    await manage({ action: "refresh", id: "CP-2", summary: "Reviewed checkpoint" });
+    work = await data({ action: "available", pageId: "P-2" }); assert.equal(work.length, 1);
+    const list = await data({ action: "list", pageId: "P-2" }); assert.equal(list.tasks.length, 1); assert.equal(list.tasks[0].pageId, "P-2");
+    const panel = h.widgets.get("taskbus");
+    await h.shortcuts.get("alt+shift+l").handler(h.ctx); assert.match(panel.render(120).join("\n"), /P-2 Second/);
+    await h.shortcuts.get("alt+shift+h").handler(h.ctx); assert.match(panel.render(120).join("\n"), /P-1 Default/);
+  } finally { rmSync(h.dir, { recursive: true }); }
+});
+
+test("running gateway reserves upstream evidence while unrelated pages remain writable", async () => {
+  const h = harness();
+  try {
+    h.handlers.get("session_start")!({}, h.ctx);
+    const manage = (input: unknown) => h.tools.get("task_manage").execute("manage", input, undefined, undefined, h.ctx);
+    await manage({ action: "task_create", pageId: "P-1", title: "Source", checkpoints: ["source"] });
+    await manage({ action: "complete", checkpointId: "CP-1", summary: "Verified" });
+    await manage({ action: "task_create", pageId: "P-1", title: "Consumer", dependencies: [{ id: "T-1", kind: "strict" }], checkpoints: ["consume"] });
+    h.ctx.executeTool = async () => {
+      await assert.rejects(() => manage({ action: "reopen", checkpointId: "CP-1", reason: "Mutate source" }), /active work/);
+      await manage({ action: "page_create", title: "Unrelated" });
+      return { result: { content: [{ type: "text", text: "ok" }], details: {} }, isError: false };
+    };
+    await h.tools.get("task_run").execute("root", { taskId: "T-2", checkpointId: "CP-2", tool: "read", args: { path: "fixture" } }, undefined, undefined, h.ctx);
+    await manage({ action: "reopen", checkpointId: "CP-1", reason: "Now safe" });
+    const list = (await manage({ action: "list" })).details;
+    assert.equal(list.tasks.find((item: any) => item.id === "T-2").state.dirty, true);
   } finally { rmSync(h.dir, { recursive: true }); }
 });

@@ -34,7 +34,7 @@ for (const mode of ["regular", "fullscreen"]) {
     const terminal = new MemoryTerminal();
     const tui = mode === "regular" ? new TuiMainScreen(terminal) : new TuiAltScreen(terminal);
     const store = new TaskStore(DEFAULT_CONFIG, () => {});
-    store.commit({ type: "task_created", title: "真实 TUI 验证", checkpoints: ["宽度及折叠", "最近调用可见"] });
+    store.commit({ type: "task_created", pageId: "P-1", title: "真实 TUI 验证", checkpoints: ["宽度及折叠", "最近调用可见"] });
     const view = newViewState();
     const panel = new TaskPanelComponent({ state: () => store.state, activeTasks: () => ["T-1"], failure: () => undefined }, view, theme, () => terminal.rows);
     tui.addChild(new Text("LATEST_TOOL_CARD: edit src/view.ts\n- old\n+ new", 0, 0));

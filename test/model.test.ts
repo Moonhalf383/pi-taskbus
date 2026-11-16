@@ -7,7 +7,7 @@ function setup() {
   const log: Envelope[] = [];
   const store = new TaskStore(DEFAULT_CONFIG, (entry) => log.push(structuredClone(entry)));
   store.commit({ type: "initialized", config: DEFAULT_CONFIG });
-  store.commit({ type: "task_created", title: "项目", checkpoints: ["验收 A", "验收 B"] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "项目", checkpoints: ["验收 A", "验收 B"] });
   return { store, log };
 }
 function work(checkpointId = "CP-1", units: 0 | 1 = 1): Event {
@@ -79,7 +79,7 @@ test("task split migrates each checkpoint once and preserves aggregate metrics",
   assert.equal(store.state.checkpoints["CP-1"].taskId, "T-2");
   assert.throws(() => validateTarget(store.state, "T-1", "CP-1"), /branch task/);
   validateTarget(store.state, "T-2", "CP-1");
-  store.commit({ type: "task_created", title: "空任务", parentId: "T-1", checkpoints: [] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "空任务", parentId: "T-1", checkpoints: [] });
   assert.equal(metrics(store.state).unplanned, 1);
 });
 
@@ -111,7 +111,7 @@ test("running leaf locks itself and ancestors while unrelated tasks remain avail
 test("transition and persistence failures preserve committed state", () => {
   const { store } = setup();
   const before = structuredClone(store.state);
-  assert.throws(() => store.commit({ type: "task_created", title: "x", checkpoints: ["a", " "] }));
+  assert.throws(() => store.commit({ type: "task_created", pageId: "P-1", title: "x", checkpoints: ["a", " "] }));
   assert.deepEqual(store.state, before);
   const failing = new TaskStore(DEFAULT_CONFIG, () => { throw new Error("disk full"); });
   assert.throws(() => failing.commit({ type: "initialized", config: DEFAULT_CONFIG }), /disk full/);
@@ -141,7 +141,7 @@ test("checkpoint count suggestions are independent from confidence", () => {
 
 test("empty leaf awaits checkpoint planning", () => {
   const { store } = setup();
-  store.commit({ type: "task_created", title: "待规划", checkpoints: [] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "待规划", checkpoints: [] });
   assert.equal(metrics(store.state, "T-2").progress, 0);
   assert.throws(() => validateTarget(store.state, "T-2", "CP-1"));
 });

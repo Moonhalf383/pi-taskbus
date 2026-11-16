@@ -6,7 +6,7 @@ import { TaskStore } from "../src/model.ts";
 
 function setup() {
   const store = new TaskStore(DEFAULT_CONFIG, () => {});
-  store.commit({ type: "task_created", title: "A", checkpoints: ["a", "b"] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "A", checkpoints: ["a", "b"] });
   const guard = new Attribution(new Set(["task_manage"]));
   guard.begin("root", { taskId: "T-1", checkpointId: "CP-1" }, store.state);
   return { state: store.state, guard };

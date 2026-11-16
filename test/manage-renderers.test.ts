@@ -15,7 +15,7 @@ const plain = (component: Component) => component.render(140).join("\n");
 
 test("management summary replaces pending heading and expands raw details", () => {
   const renderer = createManageRenderers();
-  const ctx = context({ action: "task_create", title: "用户标题" });
+  const ctx = context({ action: "task_create", pageId: "P-1", title: "用户标题" });
   const call = renderer.renderCall!(ctx.args, theme, ctx);
   assert.match(plain(call), /Created task/);
   const result = { content: [{ type: "text" as const, text: '{"revision":1}' }], details: {
@@ -33,7 +33,7 @@ test("management summary replaces pending heading and expands raw details", () =
 
 test("query summaries and error messages use English labels", () => {
   const renderer = createManageRenderers();
-  for (const action of ["list", "history", "tools"]) {
+  for (const action of ["list", "history", "tools", "available", "pages"]) {
     const ctx = context({ action });
     const result = renderer.renderResult!({ content: [{ type: "text", text: "raw output" }], details: action === "list" ? { tasks: [{ id: "T-1" }] } : [{}] }, { expanded: false, isPartial: false }, theme, ctx);
     assert.match(plain(result), /1 items/);
@@ -45,4 +45,11 @@ test("query summaries and error messages use English labels", () => {
   const result = renderer.renderResult!({ content: [{ type: "text", text: "Checkpoint was not found" }], details: undefined }, { expanded: false, isPartial: false }, theme, ctx);
   assert.match(plain(result), /✗ Completed checkpoint CP-1/);
   assert.match(plain(result), /Checkpoint was not found/);
+});
+
+
+test("management summaries show true completed and ignored counts separately", () => {
+  const renderer = createManageRenderers(), ctx = context({ action: "ignore", id: "CP-2" });
+  const output = renderer.renderResult!({ content: [], details: { metrics: { completed: 1, ignored: 1, total: 2, progress: 1, confidence: 1 } } }, { expanded: false, isPartial: false }, theme, ctx);
+  assert.match(plain(output), /1\/2 \+1 ignored 100%/);
 });

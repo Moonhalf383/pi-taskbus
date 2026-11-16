@@ -9,7 +9,7 @@ import { createAssistantMessageEventStream, type AssistantMessage, type ToolCall
 import { Type } from "typebox";
 import taskbus, { ENTRY_TYPE } from "../src/index.ts";
 import { DEFAULT_CONFIG } from "../src/config.ts";
-import { TaskStore } from "../src/model.ts";
+import { TaskStore, nodeState } from "../src/model.ts";
 
 const zeroUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
 function tool(id: string, name: string, args: ToolCall["arguments"]): ToolCall { return { type: "toolCall", id, name, arguments: args }; }
@@ -53,7 +53,7 @@ test("real Pi SDK enforces attribution and executes built-in and nested tools of
     await session.bindExtensions({ mode: "print", onError: (error) => extensionErrors.push(error.error) });
     const responses: ToolCall[][] = [
       [tool("unbound", "read", { path: "fixture.txt" })],
-      [tool("plan", "task_manage", { action: "task_create", title: "SDK 验证", checkpoints: ["内置读取", "嵌套读取"] })],
+      [tool("plan", "task_manage", { action: "task_create", pageId: "P-1", title: "SDK 验证", checkpoints: ["内置读取", "嵌套读取"] })],
       [tool("run1", "task_run", { taskId: "T-1", checkpointId: "CP-1", tool: "read", args: { path: "fixture.txt" } }), tool("run2", "task_run", { taskId: "T-1", checkpointId: "CP-2", tool: "nested_probe", args: {} })],
       [tool("invalid", "task_run", { taskId: "T-1", checkpointId: "CP-1", tool: "read", args: {} })],
       [tool("modelonly", "task_run", { taskId: "T-1", checkpointId: "CP-1", tool: "model_only_probe", args: {} })],
@@ -61,6 +61,19 @@ test("real Pi SDK enforces attribution and executes built-in and nested tools of
       [tool("blocked", "task_run", { taskId: "T-1", checkpointId: "CP-2", tool: "bash", args: { command: "blocked-by-permission" } })],
       [tool("missing", "task_run", { taskId: "T-1", checkpointId: "CP-2", tool: "read", args: { path: "missing.txt" } })],
       [tool("done", "task_manage", { action: "complete", checkpointId: "CP-1", summary: "成功读取 fixture" })],
+      [tool("page", "task_manage", { action: "page_create", title: "SDK page" })],
+      [tool("dependent", "task_manage", { action: "task_create", pageId: "P-2", title: "Dependent", dependencies: [{ id: "CP-1", kind: "strict" }], checkpoints: ["work"] })],
+      [tool("depRun", "task_run", { taskId: "T-2", checkpointId: "CP-3", tool: "read", args: { path: "fixture.txt" } })],
+      [tool("ignoreBlocked", "task_manage", { action: "ignore", id: "CP-1", ignored: true, reason: "Protected prerequisite" })],
+      [tool("invalidate", "task_manage", { action: "reopen", checkpointId: "CP-1", reason: "Upstream changed" })],
+      [tool("dirtyRun", "task_run", { taskId: "T-2", checkpointId: "CP-3", tool: "read", args: { path: "fixture.txt" } })],
+      [tool("repair", "task_manage", { action: "refresh", id: "T-2", dependencies: [], summary: "Independent evidence" })],
+      [tool("ignored", "task_manage", { action: "ignore", id: "CP-3", ignored: true, reason: "Deferred" })],
+      [tool("ignoredRun", "task_run", { taskId: "T-2", checkpointId: "CP-3", tool: "read", args: { path: "fixture.txt" } })],
+      [tool("restore", "task_manage", { action: "ignore", id: "CP-3", ignored: false, reason: "Resume" })],
+      [tool("refreshCP", "task_manage", { action: "refresh", id: "CP-3", summary: "Reviewed" })],
+      [tool("restoredRun", "task_run", { taskId: "T-2", checkpointId: "CP-3", tool: "read", args: { path: "fixture.txt" } })],
+      [tool("ready", "task_manage", { action: "available", pageId: "P-2", includeBlocked: true })],
       [],
     ];
     session.agent.streamFunction = () => {
@@ -92,9 +105,17 @@ test("real Pi SDK enforces attribution and executes built-in and nested tools of
     assert.equal(results.find((message) => message.toolCallId === "late")!.isError, false);
     assert.equal(results.find((message) => message.toolCallId === "blocked")!.isError, true);
     assert.equal(results.find((message) => message.toolCallId === "missing")!.isError, true);
-    assert.equal(restored.state.checkpoints["CP-1"].status, "done");
+    assert.equal(restored.state.checkpoints["CP-1"].status, "pending");
+    assert.equal(restored.state.pages.length, 2);
+    assert.equal(restored.state.pageByTask["T-2"], "P-2");
+    assert.equal(restored.state.checkpoints["CP-3"].effort, 2);
+    assert.equal(nodeState(restored.state, "CP-3").dirty, false);
+    for (const callId of ["ignoreBlocked", "dirtyRun", "ignoredRun"]) assert.equal(results.find((item) => item.toolCallId === callId)!.isError, true);
+    for (const callId of ["depRun", "repair", "refreshCP", "restoredRun", "ready"]) assert.equal(results.find((item) => item.toolCallId === callId)!.isError, false);
+    const ready = results.find((item) => item.toolCallId === "ready")!;
+    assert.match(JSON.stringify(ready.content), /available/);
     const records = restored.history.filter((entry) => entry.event.type === "work_recorded");
-    assert.equal(records.length, 5);
+    assert.equal(records.length, 7);
     assert.equal(records.filter((entry) => entry.event.type === "work_recorded" && entry.event.units === 0).length, 1);
     const planEntry = manager.getBranch().find((entry) => entry.type === "message" && entry.message.role === "toolResult" && entry.message.toolCallId === "plan");
     assert.ok(planEntry);

@@ -1,11 +1,36 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
 import { Input, matchesKey, truncateToWidth, visibleWidth, type Component, type Focusable } from "@earendil-works/pi-tui";
 import { confidenceColor } from "./config.ts";
-import { confidence, metrics, type State, type Envelope } from "./model.ts";
+import { confidence, metrics, nodeState, type State, type Envelope } from "./model.ts";
 
 export interface TreeRow { id: string; parentId?: string; depth: number; kind: "task" | "checkpoint"; expandable: boolean }
-export interface ViewState { collapsed: Set<string>; selectedId?: string; query: string; manualNavigation?: boolean }
+export interface ViewState { collapsed: Set<string>; selectedId?: string; query: string; manualNavigation?: boolean; pageId?: string; pageViews?: Record<string, { collapsed: Set<string>; selectedId?: string; query: string; manualNavigation?: boolean }> }
 export function newViewState(): ViewState { return { collapsed: new Set(), query: "" }; }
+
+export function selectedPage(state: State, view: ViewState): string {
+  if (!state.pages.some((page) => page.id === view.pageId)) view.pageId = state.pages[0].id;
+  return view.pageId!;
+}
+export function switchPage(state: State, view: ViewState, delta: number): void {
+  const current = selectedPage(state, view);
+  view.pageViews ??= {};
+  view.pageViews[current] = { collapsed: new Set(view.collapsed), selectedId: view.selectedId, query: view.query, manualNavigation: view.manualNavigation };
+  const index = state.pages.findIndex((page) => page.id === current);
+  view.pageId = state.pages[(index + delta + state.pages.length) % state.pages.length].id;
+  const saved = view.pageViews[view.pageId];
+  view.collapsed = new Set(saved?.collapsed ?? []);
+  view.selectedId = saved?.selectedId;
+  view.query = saved?.query ?? "";
+  view.manualNavigation = saved?.manualNavigation ?? false;
+}
+function pageTitle(state: State, view: ViewState): string {
+  const id = selectedPage(state, view), index = state.pages.findIndex((page) => page.id === id);
+  return `${index + 1}/${state.pages.length} ${id} ${safeText(state.pages[index].title)}`;
+}
+function pageMetrics(state: State, view: ViewState) {
+  const pageId = selectedPage(state, view);
+  return metrics({ ...state, roots: state.roots.filter((id) => state.pageByTask[id] === pageId) });
+}
 
 export function treeRows(state: State, view: ViewState): TreeRow[] {
   const rows: TreeRow[] = [];
@@ -26,7 +51,8 @@ export function treeRows(state: State, view: ViewState): TreeRow[] {
       while (parentId) { included.add(parentId); parentId = state.tasks[parentId]?.parentId; }
     }
   }
-  const stack = [...state.roots].reverse().map((id) => ({ id, depth: 0 }));
+  const pageId = selectedPage(state, view);
+  const stack = state.roots.filter((id) => state.pageByTask[id] === pageId).reverse().map((id) => ({ id, depth: 0 }));
   while (stack.length) {
     const { id, depth } = stack.pop()!;
     const task = state.tasks[id];
@@ -98,7 +124,7 @@ function roleColor(theme: Theme, role: "summary" | "focus", text: string): strin
 }
 
 function summaryLine(stat: ReturnType<typeof metrics>, theme: Theme): string {
-  return roleColor(theme, "summary", `${percent(stat.progress)} ${stat.completed}/${stat.total} · Confidence ${percent(stat.confidence)} · Low ${stat.lowCount}${stat.unplanned ? ` · Unplanned ${stat.unplanned}` : ""}`);
+  return roleColor(theme, "summary", `${percent(stat.progress)} ${stat.completed}/${stat.total}${stat.ignored ? ` · Ignored ${stat.ignored}` : ""} · Confidence ${percent(stat.confidence)} · Low ${stat.lowCount}${stat.unplanned ? ` · Unplanned ${stat.unplanned}` : ""}`);
 }
 
 export function rowLine(state: State, row: TreeRow, view: ViewState, theme: Theme, width: number): string {
@@ -107,23 +133,25 @@ export function rowLine(state: State, row: TreeRow, view: ViewState, theme: Them
   const stat = task ? metrics(state, task.id) : undefined;
   const score = checkpoint ? confidence(checkpoint, state.config) : stat!.confidence;
   const selected = row.id === view.selectedId;
-  const done = checkpoint ? checkpoint.status === "done" : stat!.total > 0 && stat!.completed === stat!.total;
-  const statusColor = done ? "success" : "warning";
-  const status = checkpoint ? (done ? "✓" : "○") : row.expandable ? (view.query || !view.collapsed.has(row.id) ? "▾" : "▸") : "·";
+  const semantic = nodeState(state, row.id);
+  const done = semantic.done;
+  const statusColor = semantic.certainty === "ignored" ? "muted" : semantic.dirty ? "warning" : done ? "success" : "warning";
+  const status = semantic.certainty === "ignored" ? "⊘" : semantic.dirty ? "!" : checkpoint ? (done ? "✓" : "○") : row.expandable ? (view.query || !view.collapsed.has(row.id) ? "▾" : "▸") : "·";
   const marker = selected ? roleColor(theme, "focus", ">") : theme.fg("dim", " ");
   const indent = "  ".repeat(Math.min(row.depth, Math.max(0, Math.floor(width / 6))));
   const titleColor = "text";
   const title = `${marker} ${indent}${theme.fg(statusColor, status)} ${(selected ? roleColor(theme, "focus", row.id) : theme.fg("muted", row.id))} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`;
   const scoreText = theme.fg(confidenceColor(score, state.config), `C:${percent(score)}`);
+  const identity = `${semantic.certainty === "ignored" ? "ignored" : semantic.completion === "uncertainly done" ? "uncertainly done" : done ? "done" : "pending"}${semantic.dirty ? " !dirty" : ""}`;
   const statusText = checkpoint
-    ? theme.fg(statusColor, done ? "done" : "pending")
-    : theme.fg(statusColor, `${percent(stat!.progress)} ${stat!.completed}/${stat!.total}`)
+    ? theme.fg(statusColor, identity)
+    : theme.fg(statusColor, `${percent(stat!.progress)} ${stat!.completed}/${stat!.total}${stat!.ignored ? ` +${stat!.ignored} ignored` : ""}${semantic.certainty === "ignored" ? " ignored" : done ? ` ${semantic.completion}` : semantic.certainty === "uncertain" ? " uncertain" : ""}${semantic.dirty ? " !dirty" : ""}`)
       + (stat!.unplanned ? theme.fg("muted", " unplanned") : "");
   const suffix = ` ${statusText}  ${scoreText}`;
   const suffixWidth = visibleWidth(suffix);
   const content = width >= suffixWidth + 12
     ? fitLine(title, Math.max(1, width - suffixWidth)) + suffix
-    : fitLine(`${marker}${(selected ? roleColor(theme, "focus", row.id) : theme.fg("muted", row.id))} ${task ? theme.fg(statusColor, `${percent(stat!.progress)} `) : theme.fg(statusColor, `${status} `)}${scoreText} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`, width);
+    : fitLine(`${marker}${(selected ? roleColor(theme, "focus", row.id) : theme.fg("muted", row.id))} ${theme.fg(statusColor, `${semantic.certainty === "ignored" ? "⊘ " : semantic.dirty ? "! " : ""}${task ? `${percent(stat!.progress)} ` : status + " "}`)}${scoreText} ${theme.fg(titleColor, safeText((checkpoint ?? task)!.title))}`, width);
   return selected ? theme.bg("selectedBg", theme.bold(content)) : content;
 }
 
@@ -147,7 +175,8 @@ export class TaskPanelComponent implements Component {
       this.theme.fg("error", safeText(failure ?? "Waiting for session initialization")),
       this.theme.fg("muted", "/taskbus inspect · /taskbus recover retry"),
     ], "Taskbus · Tracking error", this.theme, width, height);
-    const stat = metrics(state);
+    selectedPage(state, this.view);
+    const stat = pageMetrics(state, this.view);
     // Search in the full window should not hide unrelated work in the resident panel.
     const panelView = { ...this.view, query: "" };
     const rows = treeRows(state, panelView);
@@ -160,7 +189,7 @@ export class TaskPanelComponent implements Component {
     const lines = [summaryLine(stat, this.theme)];
     if (height <= 4) {
       const row = rows[focus];
-      return framedLines([row ? rowLine(state, row, panelView, this.theme, innerWidth) : lines[0], this.theme.fg("muted", "/taskbus open full tree")], "Taskbus · Task tree", this.theme, width, height);
+      return framedLines([row ? rowLine(state, row, panelView, this.theme, innerWidth) : lines[0], this.theme.fg("muted", "/taskbus open full tree")], `Taskbus · Task tree · ${pageTitle(state, this.view)}`, this.theme, width, height);
     }
     if (!rows.length) lines.push(this.theme.fg("muted", "No tasks yet. Use task_manage to create tasks and checkpoints."));
     else for (const row of rows.slice(start, start + capacity)) {
@@ -169,8 +198,8 @@ export class TaskPanelComponent implements Component {
     }
     const hidden = Math.max(0, rows.length - capacity);
     while (lines.length < height - 3) lines.push("");
-    lines.push(this.theme.fg("dim", `${hidden ? `${hidden} more nodes · ` : ""}Alt+j/k move · Alt+h/l fold/unfold · /taskbus`));
-    return framedLines(lines, "Taskbus · Task tree", this.theme, width, height);
+    lines.push(this.theme.fg("dim", `${hidden ? `${hidden} more nodes · ` : ""}Alt+j/k move · Alt+h/l fold · Alt+Shift+h/l pages · /taskbus`));
+    return framedLines(lines, `Taskbus · Task tree · ${pageTitle(state, this.view)}`, this.theme, width, height);
   }
 }
 
@@ -192,6 +221,10 @@ export class TaskTreeComponent implements Component, Focusable {
   }
   invalidate(): void { this.input.invalidate(); }
   handleInput(data: string): void {
+    if (matchesKey(data, "shift+h") || matchesKey(data, "shift+l")) {
+      switchPage(this.source.state(), this.view, matchesKey(data, "shift+h") ? -1 : 1);
+      this.searching = false; this.offset = 0; this.input.setValue(this.view.query); this.requestRender(); return;
+    }
     if (this.searching) {
       if (matchesKey(data, "escape") || matchesKey(data, "return")) { this.searching = false; this.requestRender(); }
       else {
@@ -219,7 +252,7 @@ export class TaskTreeComponent implements Component, Focusable {
       if (current?.expandable && this.view.collapsed.has(current.id)) this.view.collapsed.delete(current.id);
       else if (current?.expandable) this.view.selectedId = rows[index + 1]?.id;
     } else if (pressed("o")) this.view.collapsed.clear();
-    else if (pressed("z")) { for (const id of Object.keys(state.tasks)) this.view.collapsed.add(id); this.view.selectedId = state.roots[0]; }
+    else if (pressed("z")) { for (const row of rows) if (row.kind === "task") this.view.collapsed.add(row.id); this.view.selectedId = rows[0]?.id; }
     else if (matchesKey(data, "return")) this.details = !this.details;
     else if (data === "g" || pressed("g")) this.view.selectedId = rows[0]?.id;
     else if (data === "G" || pressed("shift+g")) this.view.selectedId = rows.at(-1)?.id;
@@ -230,19 +263,20 @@ export class TaskTreeComponent implements Component, Focusable {
     const rows = treeRows(state, this.view);
     if (!rows.some((row) => row.id === this.view.selectedId)) this.view.selectedId = rows[0]?.id;
     const currentIndex = Math.max(0, rows.findIndex((row) => row.id === this.view.selectedId));
-    const total = metrics(state);
+    const total = pageMetrics(state, this.view);
     const detailLines: string[] = [];
     if (this.details && this.view.selectedId) {
       const id = this.view.selectedId;
       const checkpoint = state.checkpoints[id];
+      const semantic = nodeState(state, id);
       detailLines.push(`Details ${id} ${safeText((checkpoint ?? state.tasks[id]).title)}`);
       if (checkpoint) {
-        detailLines.push(`Status ${checkpoint.status} · Effort ${Number(checkpoint.effort.toFixed(3))} · Confidence ${percent(confidence(checkpoint, state.config))}${checkpoint.sourceId ? ` · Split from ${checkpoint.sourceId}` : ""}`);
+        detailLines.push(`Status ${checkpoint.status} · Effort ${Number(checkpoint.effort.toFixed(3))} · Confidence ${percent(confidence(checkpoint, state.config))}${checkpoint.sourceId ? ` · Split from ${checkpoint.sourceId}` : ""}${semantic.dirty ? " · !dirty" : ""}${semantic.certainty === "ignored" ? " · ignored" : ""}${getDependencies(state, id)}`);
         if (checkpoint.summary) detailLines.push(`Result: ${safeText(checkpoint.summary)}`);
         if (checkpoint.reason) detailLines.push(`Reopened: ${safeText(checkpoint.reason)}`);
       } else {
         const stat = metrics(state, id);
-        detailLines.push(`Lowest confidence ${percent(stat.lowest)} · Low ${stat.lowCount} · Unplanned leaves ${stat.unplanned}`);
+        detailLines.push(`${semantic.completion} · ${semantic.certainty}${semantic.dirty ? " · !dirty" : ""} · Lowest confidence ${percent(stat.lowest)} · Low ${stat.lowCount} · Unplanned leaves ${stat.unplanned}${getDependencies(state, id)}`);
       }
       for (const entry of this.source.history().filter((entry) => JSON.stringify(entry.event).includes(`"${id}"`)).slice(-4)) {
         detailLines.push(`${entry.timestamp.slice(11, 19)} ${safeText(JSON.stringify(entry.event))}`);
@@ -269,7 +303,12 @@ export class TaskTreeComponent implements Component, Focusable {
     else for (const row of rows.slice(this.offset, this.offset + capacity)) lines.push(rowLine(state, row, this.view, this.theme, innerWidth));
     for (const line of detailLines.slice(0, detailBudget)) lines.push(this.theme.fg("muted", line));
     while (lines.length < bodyHeight - 1) lines.push("");
-    lines.push(this.theme.fg("dim", `${rows.length ? currentIndex + 1 : 0}/${rows.length}  jk move · hl fold/unfold · / search · Enter details · o expand all · z fold all · Esc close`));
-    return framedLines(lines, "Taskbus · Task manager", this.theme, width, height);
+    lines.push(this.theme.fg("dim", `${rows.length ? currentIndex + 1 : 0}/${rows.length}  jk move · hl fold · Shift+h/l pages · / search · Enter details · o expand all · z fold all · Esc close`));
+    return framedLines(lines, `Taskbus · Task manager · ${pageTitle(state, this.view)}`, this.theme, width, height);
   }
+}
+
+function getDependencies(state: State, id: string): string {
+  const edges = (state.tasks[id] ?? state.checkpoints[id]).dependencies ?? [];
+  return edges.length ? ` · Requires ${edges.map((edge) => `${edge.kind}:${edge.id}`).join(", ")}` : "";
 }

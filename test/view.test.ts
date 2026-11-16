@@ -10,7 +10,7 @@ const palette: Record<string, number> = { error: 31, warning: 33, success: 32, a
 const theme = { appearance: "dark", style: (text: string, options: { fg?: { r?: number; g?: number; b?: number } }) => `\x1b[38;2;${options.fg?.r};${options.fg?.g};${options.fg?.b}m${text}\x1b[39m`, fg: (color: string, text: string) => `\x1b[${palette[color] ?? 37}m${text}\x1b[39m`, bg: (_color: string, text: string) => `\x1b[44m${text}\x1b[49m`, bold: (text: string) => `\x1b[1m${text}\x1b[22m` } as unknown as Theme;
 function setup() {
   const store = new TaskStore(DEFAULT_CONFIG, () => {});
-  store.commit({ type: "task_created", title: "项目中文树 🌲", checkpoints: ["接口验收", "测试覆盖"] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "项目中文树 🌲", checkpoints: ["接口验收", "测试覆盖"] });
   store.commit({ type: "task_split", taskId: "T-1", groups: [{ title: "接口", checkpointIds: ["CP-1"] }, { title: "测试", checkpointIds: ["CP-2"] }] });
   const view = newViewState();
   let closed = false, renders = 0, height = 15;
@@ -21,7 +21,7 @@ function setup() {
 
 test("built-in panel and full-tree labels are English while custom text is preserved", () => {
   const store = new TaskStore(DEFAULT_CONFIG, () => {});
-  store.commit({ type: "task_created", title: "English task", checkpoints: ["English checkpoint"] });
+  store.commit({ type: "task_created", pageId: "P-1", title: "English task", checkpoints: ["English checkpoint"] });
   const view = newViewState();
   const panel = new TaskPanelComponent({ state: () => store.state, activeTasks: () => [], failure: () => undefined }, view, theme, () => 30);
   const full = new TaskTreeComponent({ state: () => store.state, history: () => store.history }, view, theme, () => {}, () => 20, () => {});

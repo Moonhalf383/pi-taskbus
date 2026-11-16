@@ -3,10 +3,10 @@ import { Container, Text, truncateToWidth, type Component } from "@earendil-work
 import { percent, safeText } from "./view.ts";
 
 type ManageArgs = { action?: string; id?: string; taskId?: string; checkpointId?: string; title?: string };
-type Metrics = { completed: number; total: number; progress: number; confidence: number };
+type Metrics = { completed: number; ignored?: number; total: number; progress: number; confidence: number };
 interface ResultDetails { ids?: string[]; notices?: string[]; metrics?: Metrics; tasks?: unknown[] }
 const labels: Record<string, string> = {
-  list: "Task tree", history: "Task history", tools: "Available tools", task_create: "Created task",
+  pages: "Pages", page_create: "Created page", available: "Available work", ignore: "Updated ignore", dependencies: "Updated prerequisites", refresh: "Refreshed", list: "Task tree", history: "Task history", tools: "Available tools", task_create: "Created task",
   checkpoint_add: "Added checkpoint", rename: "Renamed", complete: "Completed checkpoint",
   reopen: "Reopened checkpoint", checkpoint_split: "Split checkpoint", task_split: "Split task",
 };
@@ -37,7 +37,7 @@ export function createManageRenderers(): ToolRenderers {
       if (count !== undefined) summary += ` · ${count} items`;
       if (packet?.metrics) {
         const stat = packet.metrics;
-        summary += ` · ${stat.completed}/${stat.total} ${percent(stat.progress)} · C:${percent(stat.confidence)}`;
+        summary += ` · ${stat.completed}/${stat.total}${stat.ignored ? ` +${stat.ignored} ignored` : ""} ${percent(stat.progress)} · C:${percent(stat.confidence)}`;
       }
       const container = new Container();
       const failed = context.isError || result.isError;
@@ -45,7 +45,7 @@ export function createManageRenderers(): ToolRenderers {
       for (const notice of packet?.notices ?? []) container.addChild(new Text(theme.fg("warning", safeText(notice)), 0, 0));
       const text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
       if (failed || options.expanded) container.addChild(new Text(text, 0, 0));
-      else if (["list", "history", "tools"].includes(args.action ?? "")) {
+      else if (["list", "history", "tools", "available", "pages"].includes(args.action ?? "")) {
         const hint = context.keyHint("app.tools.expand", "show details");
         if (hint) container.addChild(new Text(theme.fg("dim", hint), 0, 0));
       }

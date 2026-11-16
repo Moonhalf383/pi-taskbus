@@ -8,35 +8,47 @@ import { createRunRenderers } from "./renderers.ts";
 import { createManageRenderers } from "./manage-renderers.ts";
 import { Attribution } from "./attribution.ts";
 import { DEFAULT_CONFIG, loadConfig } from "./config.ts";
-import { TaskStore, affectedTasks, assertUnlocked, metrics, type Event } from "./model.ts";
-import { TaskPanelComponent, TaskTreeComponent, newViewState, navigateTree, overlayHeight, safeText } from "./view.ts";
+import { TaskStore, assertMutationSafe, nodeState, availableWork, metrics, type Event } from "./model.ts";
+import { TaskPanelComponent, TaskTreeComponent, newViewState, navigateTree, switchPage, overlayHeight, safeText } from "./view.ts";
 
 export const ENTRY_TYPE = "pi-taskbus.event.v1";
 const MANAGEMENT = new Set(["task_manage"]);
 const string = () => Type.String({ minLength: 1, maxLength: 8000 });
 const id = () => Type.String({ minLength: 1 });
+const DependencySchema = Type.Object({ id: id(), kind: Type.Union([Type.Literal("strict"), Type.Literal("soft")]) });
+const Dependencies = () => Type.Array(DependencySchema, { maxItems: 1000 });
+const CheckpointSchema = Type.Union([string(), Type.Object({ title: string(), dependencies: Type.Optional(Dependencies()) })]);
+const PartSchema = Type.Object({ title: string(), share: Type.Optional(Type.Number({ exclusiveMinimum: 0 })), dependencies: Type.Optional(Dependencies()) });
 const ActionSchema = Type.Union([
-  Type.Object({ action: Type.Literal("list"), taskId: Type.Optional(id()) }),
+  Type.Object({ action: Type.Literal("list"), taskId: Type.Optional(id()), pageId: Type.Optional(id()) }),
+  Type.Object({ action: Type.Literal("available"), taskId: Type.Optional(id()), pageId: Type.Optional(id()), includeBlocked: Type.Optional(Type.Boolean()) }),
+  Type.Object({ action: Type.Literal("pages") }),
+  Type.Object({ action: Type.Literal("page_create"), title: string() }),
   Type.Object({ action: Type.Literal("history"), id: Type.Optional(id()), limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })) }),
   Type.Object({ action: Type.Literal("tools"), query: Type.Optional(Type.String()) }),
-  Type.Object({ action: Type.Literal("task_create"), title: string(), parentId: Type.Optional(id()), checkpoints: Type.Array(string(), { maxItems: 100 }) }),
-  Type.Object({ action: Type.Literal("checkpoint_add"), taskId: id(), title: string() }),
+  Type.Object({ action: Type.Literal("task_create"), title: string(), parentId: Type.Optional(id()), pageId: Type.Optional(id()), dependencies: Type.Optional(Dependencies()), checkpoints: Type.Array(CheckpointSchema, { maxItems: 100 }) }),
+  Type.Object({ action: Type.Literal("checkpoint_add"), taskId: id(), title: string(), dependencies: Type.Optional(Dependencies()) }),
+  Type.Object({ action: Type.Literal("ignore"), id: id(), ignored: Type.Boolean(), reason: string() }),
+  Type.Object({ action: Type.Literal("dependencies"), id: id(), dependencies: Dependencies(), reason: string() }),
+  Type.Object({ action: Type.Literal("refresh"), id: id(), summary: string(), dependencies: Type.Optional(Dependencies()), outcome: Type.Optional(Type.Union([Type.Literal("keep"), Type.Literal("reopen")])) }),
   Type.Object({ action: Type.Literal("rename"), id: id(), title: string() }),
   Type.Object({ action: Type.Literal("complete"), checkpointId: id(), summary: string() }),
   Type.Object({ action: Type.Literal("reopen"), checkpointId: id(), reason: string() }),
-  Type.Object({ action: Type.Literal("checkpoint_split"), checkpointId: id(), parts: Type.Array(Type.Object({ title: string(), share: Type.Optional(Type.Number({ exclusiveMinimum: 0 })) }), { minItems: 2, maxItems: 100 }) }),
-  Type.Object({ action: Type.Literal("task_split"), taskId: id(), groups: Type.Array(Type.Object({ title: string(), checkpointIds: Type.Array(id(), { maxItems: 1000 }) }), { minItems: 2, maxItems: 100 }) }),
+  Type.Object({ action: Type.Literal("checkpoint_split"), checkpointId: id(), parts: Type.Array(PartSchema, { minItems: 2, maxItems: 100 }) }),
+  Type.Object({ action: Type.Literal("task_split"), taskId: id(), groups: Type.Array(Type.Object({ title: string(), checkpointIds: Type.Array(id(), { maxItems: 1000 }), dependencies: Type.Optional(Dependencies()) }), { minItems: 2, maxItems: 100 }) }),
 ]);
-// Providers require an object at the tool-schema root. Validate action-specific fields in execute.
+// Keep an object schema at the provider boundary, then validate each action before mutation.
 const ManagementSchema = Type.Object({
-  action: Type.Union(["list", "history", "tools", "task_create", "checkpoint_add", "rename", "complete", "reopen", "checkpoint_split", "task_split"].map((value) => Type.Literal(value))),
-  taskId: Type.Optional(id()), checkpointId: Type.Optional(id()), id: Type.Optional(id()),
+  action: Type.Union(["list", "available", "pages", "page_create", "history", "tools", "task_create", "checkpoint_add", "ignore", "dependencies", "refresh", "rename", "complete", "reopen", "checkpoint_split", "task_split"].map((value) => Type.Literal(value))),
+  taskId: Type.Optional(id()), checkpointId: Type.Optional(id()), id: Type.Optional(id()), pageId: Type.Optional(id()),
   title: Type.Optional(string()), parentId: Type.Optional(id()), query: Type.Optional(Type.String()),
-  checkpoints: Type.Optional(Type.Array(string(), { maxItems: 100 })),
+  dependencies: Type.Optional(Dependencies()), ignored: Type.Optional(Type.Boolean()), includeBlocked: Type.Optional(Type.Boolean()),
+  outcome: Type.Optional(Type.Union([Type.Literal("keep"), Type.Literal("reopen")])),
+  checkpoints: Type.Optional(Type.Array(CheckpointSchema, { maxItems: 100 })),
   summary: Type.Optional(string()), reason: Type.Optional(string()),
   limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 100 })),
-  parts: Type.Optional(Type.Array(Type.Object({ title: string(), share: Type.Optional(Type.Number({ exclusiveMinimum: 0 })) }), { minItems: 2, maxItems: 100 })),
-  groups: Type.Optional(Type.Array(Type.Object({ title: string(), checkpointIds: Type.Array(id(), { maxItems: 1000 }) }), { minItems: 2, maxItems: 100 })),
+  parts: Type.Optional(Type.Array(PartSchema, { minItems: 2, maxItems: 100 })),
+  groups: Type.Optional(Type.Array(Type.Object({ title: string(), checkpointIds: Type.Array(id(), { maxItems: 1000 }), dependencies: Type.Optional(Dependencies()) }), { minItems: 2, maxItems: 100 })),
 });
 const RunSchema = Type.Object({
   taskId: id(), checkpointId: id(), tool: Type.String({ minLength: 1 }),
@@ -134,8 +146,9 @@ export default function taskbus(pi: ExtensionAPI): void {
     event.systemPromptOptions.sections["taskbus"] = [
       "<taskbus>",
       "All work tools must run through task_run with an explicit leaf taskId and pending checkpointId. Create tasks and acceptance checkpoints using task_manage first.",
-      "Use task_manage for task management: list/history/tools/task_create/checkpoint_add/rename/complete/reopen/checkpoint_split/task_split.",
+      "Use task_manage pages/page_create to organize pages. Top-level task_create requires pageId; children inherit their page. Use list/available/history/tools for inspection, and task_create/checkpoint_add/rename/complete/reopen/ignore/dependencies/refresh/checkpoint_split/task_split for management.",
       "task_run supports nestable in-process tools. Inspect names, parameters, promptGuidelines and compatibility with task_manage tools, and follow the target tool guidelines. Each executed leaf work call multiplies granularity confidence by the session decay factor.",
+      "Strict prerequisites must stay certain and be clean certainly done before execution; soft prerequisites must stay nonignored and be clean done. Ancestor task prerequisites also gate descendants. Ignore retains records; dirty requires per-node refresh with a summary and explicit keep/reopen for done checkpoints. Use available(includeBlocked:true) for actionable blockers. Split archives old checkpoints and retains dependency edges until explicitly repaired.",
       "Low confidence suggests a checkpoint may hide untracked work. Refine tracking when reminded; splitting preserves and distributes historical effort. Include a result summary when completing checkpoints.",
       "Independent subagents count only the delegation call; in-process nested tools inherit attribution. Submit task mutations and task_run in separate rounds, waiting for returned IDs before using them.",
       `Current summary: ${JSON.stringify(metrics(current.state))}. Use task_manage list to inspect the task tree.`,
@@ -145,7 +158,7 @@ export default function taskbus(pi: ExtensionAPI): void {
 
   pi.registerTool({
     name: "task_manage", label: "Taskbus Manage", parameters: ManagementSchema,
-    description: "Manage the session task tree. Actions and required fields: list(taskId?); history(id?,limit?); tools(query?); task_create(title,checkpoints:string[],parentId?); checkpoint_add(taskId,title); rename(id,title); complete(checkpointId,summary); reopen(checkpointId,reason); checkpoint_split(checkpointId,parts:[{title,share?}]); task_split(taskId,groups:[{title,checkpointIds}]). Splits require at least two parts. Supply all shares or omit all. task_split assigns every active checkpoint exactly once. Plan checkpoints before work; tools returns original schemas and guidelines.",
+    description: "Manage a paged task forest. Inspect: pages(), list(taskId?,pageId?), available(pageId?,taskId?,includeBlocked?), history(id?,limit?), tools(query?). Mutate: page_create(title); task_create(title,pageId for top-level,parentId?,dependencies?,checkpoints:[string|{title,dependencies?}]); checkpoint_add(taskId,title,dependencies?); rename(id,title); complete(checkpointId,summary); reopen(checkpointId,reason); ignore(id,ignored:boolean,reason); dependencies(id,dependencies,reason); refresh(id,summary,dependencies?,outcome?:keep|reopen); checkpoint_split(checkpointId,parts:[{title,share?,dependencies?}]); task_split(taskId,groups:[{title,checkpointIds,dependencies?}]). Dependencies are [{id,kind:strict|soft}]. Splits require 2+ parts/groups, all shares or none. Refresh atomically reviews/replaces edges; done checkpoints require explicit keep/reopen. Never delete nodes; inspect available blockers to plan recovery.",
     promptSnippet: "Create and manage task trees, checkpoints, splits and execution history",
     promptGuidelines: ["Use task_manage to create a leaf task and checkpoints before executing work through task_run. Provide a result summary when using task_manage complete."],
     executionMode: "sequential",
@@ -153,19 +166,26 @@ export default function taskbus(pi: ExtensionAPI): void {
       const params: unknown = input;
       if (!Check(ActionSchema, params)) throw new Error("task_manage arguments do not match the action; provide the required fields in the tool description");
       const current = ready();
+      if (params.action === "pages") return jsonResult(current.state.pages);
+      if (params.action === "available") {
+        if (params.pageId && !current.state.pages.some((page) => page.id === params.pageId)) throw new Error("Unknown pageId");
+        return jsonResult(availableWork(current.state, params, attribution.activeTasks()));
+      }
       if (params.action === "list") {
+        if (params.pageId && !current.state.pages.some((page) => page.id === params.pageId)) throw new Error("Unknown pageId");
         const taskIds: string[] = [];
-        const stack = params.taskId ? [params.taskId] : [...current.state.roots];
+        const stack = params.taskId ? [params.taskId] : current.state.roots.filter((id) => !params.pageId || current.state.pageByTask[id] === params.pageId);
         while (stack.length) {
           const taskId = stack.pop()!;
           const task = current.state.tasks[taskId];
           if (!task) throw new Error(`Task ${taskId} was not found`);
+          if (params.pageId && current.state.pageByTask[taskId] !== params.pageId) continue;
           taskIds.push(taskId);
           if (task.kind === "branch") stack.push(...task.childIds);
         }
-        return jsonResult({ revision: current.state.revision, config: current.state.config, tasks: taskIds.map((taskId) => {
+        return jsonResult({ revision: current.state.revision, config: current.state.config, pages: current.state.pages, archived: Object.values(current.state.checkpoints).filter((cp) => cp.status === "archived" && (!params.taskId || taskIds.includes(cp.taskId)) && (!params.pageId || current.state.pageByTask[cp.taskId] === params.pageId)), tasks: taskIds.map((taskId) => {
           const task = current.state.tasks[taskId];
-          return { ...task, metrics: metrics(current.state, taskId), ...(task.kind === "leaf" ? { checkpoints: task.checkpointIds.map((id) => current.state.checkpoints[id]) } : {}) };
+          return { ...task, pageId: current.state.pageByTask[taskId], state: nodeState(current.state, taskId), metrics: metrics(current.state, taskId), ...(task.kind === "leaf" ? { checkpoints: task.checkpointIds.map((id) => ({ ...current.state.checkpoints[id], state: nodeState(current.state, id) })) } : {}) };
         }) });
       }
       if (params.action === "history") {
@@ -182,6 +202,10 @@ export default function taskbus(pi: ExtensionAPI): void {
       }
       let change: Event;
       switch (params.action) {
+        case "page_create": change = { type: "page_created", title: params.title }; break;
+        case "ignore": change = { type: "ignore_changed", id: params.id, ignored: params.ignored, reason: params.reason }; break;
+        case "dependencies": change = { type: "dependencies_changed", id: params.id, dependencies: params.dependencies, reason: params.reason }; break;
+        case "refresh": change = { type: "node_refreshed", id: params.id, summary: params.summary, dependencies: params.dependencies, outcome: params.outcome }; break;
         case "task_create": change = { type: "task_created", ...params }; break;
         case "checkpoint_add": change = { type: "checkpoint_added", ...params }; break;
         case "rename": change = { type: "renamed", ...params }; break;
@@ -190,7 +214,7 @@ export default function taskbus(pi: ExtensionAPI): void {
         case "checkpoint_split": change = { type: "checkpoint_split", id: params.checkpointId, parts: params.parts }; break;
         case "task_split": change = { type: "task_split", ...params }; break;
       }
-      assertUnlocked(current.state, affectedTasks(current.state, change), attribution.activeTasks());
+      assertMutationSafe(current.state, change, attribution.activeTasks());
       const result = current.commit(change);
       refresh(ctx);
       return jsonResult({ revision: result.state.revision, ids: result.ids, notices: result.notices, metrics: metrics(result.state) });
@@ -248,6 +272,13 @@ export default function taskbus(pi: ExtensionAPI): void {
       if (ctx.mode !== "tui" || !store) return;
       navigateTree(store.state, view, action);
       refresh(ctx);
+    } });
+  }
+
+  for (const [key, delta] of [["alt+shift+h", -1], ["alt+shift+l", 1]] as const) {
+    pi.registerShortcut(key, { description: "Switch taskbus page", handler: async (ctx) => {
+      if (ctx.mode !== "tui" || !store) return;
+      switchPage(store.state, view, delta); refresh(ctx);
     } });
   }
 

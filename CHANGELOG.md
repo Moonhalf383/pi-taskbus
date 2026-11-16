@@ -2,6 +2,8 @@
 
 ## [0.1.0]
 
+Initial release includes a paged task forest with cross-page strict/soft prerequisites, reversible ignore, derived certainty/completion, transitive dirty tracking, explicit refresh, and available-work queries with blockers. Legacy session trees migrate into the default page with IDs preserved.
+
 Initial release of pi-taskbus, tested with Pi 1.5.2 and requiring Node.js 22.19.0 or later.
 
 Task trees organize work into leaf tasks and binary checkpoints, with count-based progress, effort-based granularity confidence, configurable reminders, and checkpoint or task splitting that preserves historical effort. Work tools run through task_run with explicit attribution, including nested in-process calls, concurrent task isolation, and execution auditing.
